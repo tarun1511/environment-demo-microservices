@@ -1,0 +1,112 @@
+version: "3.7"
+
+networks:
+  tkj-network: 
+
+services:
+  mysql-docker:
+    image: mysql
+  #  container_name: mysql-docker-container
+    ports:
+      - 3307:3306
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+     # - MYSQL_USER=root
+     # - MYSQL_PASSWORD=root
+      - MYSQL_DATABASE=demoproductstock
+    volumes:
+      - /data/mysql
+    networks:
+      - tkj-network
+  tkj-api-gateway:
+    image: tkj-api-gateway
+    environment:
+      SPRING_APPLICATION_JSON: '{"eureka":{"client":{"serviceUrl":{"defaultZone":"http://tkj-eureka-server:8761/eureka"}}}}'
+      SPRING.ZIPKIN.BASE-URL: http://zipkin:9411/
+      SPRING_CLOUD_GATEWAY_ROUTES[0]_URI: http://tkj-product-enquiry:8700
+      SPRING_CLOUD_GATEWAY_ROUTES[0]_ID: tkj-product-enquiry
+      SPRING_CLOUD_GATEWAY_ROUTES[0]_PREDICATES[0]: Path= /enquiry/**
+   # build: .
+   # restart: always
+    ports:
+      - 8900:8900
+    depends_on:
+      - tkj-product-stock
+      - tkj-eureka-server
+      - tkj-product-enquiry
+    networks:
+      - tkj-network
+  tkj-product-stock:
+    image: tkj-product-stock
+    links:
+      - tkj-eureka-server
+    environment:
+      SPRING_APPLICATION_JSON: '{"eureka":{"client":{"serviceUrl":{"defaultZone":"http://tkj-eureka-server:8761/eureka"}}}}'
+      SPRING.ZIPKIN.BASE-URL: http://zipkin:9411/
+    ports:
+      - 8800:8800
+    depends_on:
+      - mysql-docker
+      - tkj-eureka-server
+    networks:
+      - tkj-network
+  tkj-product-enquiry:
+    image: tkj-product-enquiry
+    links:
+      - tkj-eureka-server
+    environment:
+      SPRING_APPLICATION_JSON: '{"eureka":{"client":{"serviceUrl":{"defaultZone":"http://tkj-eureka-server:8761/eureka"}}}}'
+      SPRING.ZIPKIN.BASE-URL: http://zipkin:9411/
+    ports:
+      - 8700:8700
+    depends_on:
+     - tkj-product-stock
+     - tkj-eureka-server
+    networks:
+      - tkj-network
+  zipkin:
+    image: openzipkin/zipkin
+    environment: 
+      - STORAGE_TYPE=mem
+  #  build: .
+    #restart: always
+    ports:
+      - 9411:9411
+    depends_on:
+     - tkj-eureka-server
+    networks:
+      - tkj-network
+  tkj-eureka-server:
+    image: tkj-eureka-server
+   # build: .
+  #  restart: always
+    ports:
+      - 8761:8761
+    networks:
+      - tkj-network
+  prometheus:
+    image: prom/prometheus:latest
+  #  restart: unless-stopped
+    volumes:
+      - ./data/prometheus/config:/etc/prometheus/
+      - ./data/prometheus/data:/prometheus
+    command:
+       - '--config.file=/etc/prometheus/prometheus.yml'
+       - '--storage.tsdb.path=/prometheus'
+    ports:
+      - 9090:9090
+    depends_on:
+     - tkj-product-stock
+    networks:
+      - tkj-network
+  grafana:
+    image: grafana/grafana
+   # restart: unless-stopped
+    depends_on:
+     - prometheus
+    volumes:
+      - ./data/grafana:/var/lib/grafana
+    networks:
+      - tkj-network
+    ports:
+      - 3000:3000
